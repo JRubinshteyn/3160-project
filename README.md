@@ -1,2 +1,2 @@
-# 7120-project
-This is the code for the final project for CISC 7120, by Jonathan Rubinshteyn
+# 3160-project
+This is the code for the final project for CISC 3160, by Jonathan Rubinshteyn
