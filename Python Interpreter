@@ -1,0 +1,201 @@
+import sys
+
+class InterpreterError(Exception):
+    pass
+
+class LexError(Exception):
+    pass
+
+class Token:
+    def __init__(self, type, value):
+        self.type = type
+        self.value = value
+
+    def __repr__(self):
+        return f"Token({self.type}, {self.value})"
+
+def tokenize(s):
+    tokens = []
+    i = 0
+    while i < len(s):
+        c = s[i]
+        if c.isspace():
+            i += 1
+            continue
+        elif c.isalpha() or c == '_':
+            start = i
+            while i < len(s) and (s[i].isalnum() or s[i] == '_'):
+                i += 1
+            tokens.append(Token("IDENT", s[start:i]))
+        elif c.isdigit():
+            start = i
+            while i < len(s) and s[i].isdigit():
+                i += 1
+            num_str = s[start:i]
+            if num_str[0] == '0' and len(num_str) > 1:
+                raise LexError("Invalid literal with leading 0")
+            tokens.append(Token("INTEGER", num_str))
+        elif c == '+':
+            tokens.append(Token("PLUS", c))
+            i += 1
+        elif c == '-':
+            tokens.append(Token("MINUS", c))
+            i += 1
+        elif c == '*':
+            tokens.append(Token("MUL", c))
+            i += 1
+        elif c == '=':
+            tokens.append(Token("ASSIGN", c))
+            i += 1
+        elif c == '(':
+            tokens.append(Token("LPAREN", c))
+            i += 1
+        elif c == ')':
+            tokens.append(Token("RPAREN", c))
+            i += 1
+        elif c == ';':
+            tokens.append(Token("SEMICOLON", c))
+            i += 1
+        else:
+            raise LexError(f"Unknown character: {c}")
+    tokens.append(Token("EOF", None))
+    return tokens
+
+class Parser:
+    def __init__(self, tokens):
+        self.tokens = tokens
+        self.pos = 0
+
+    def current(self):
+        return self.tokens[self.pos]
+
+    def eat(self, token_type):
+        if self.current().type == token_type:
+            self.pos += 1
+        else:
+            raise InterpreterError(f"Expected token {token_type} but got {self.current().type}")
+
+    def parse_program(self):
+        assignments = []
+        while self.current().type != "EOF":
+            assignments.append(self.parse_assignment())
+        return assignments
+
+    def parse_assignment(self):
+        if self.current().type != "IDENT":
+            raise InterpreterError("Expected identifier at beginning of assignment")
+        ident = self.current().value
+        self.eat("IDENT")
+        if self.current().type != "ASSIGN":
+            raise InterpreterError("Expected '=' in assignment")
+        self.eat("ASSIGN")
+        expr = self.parse_expr()
+        if self.current().type != "SEMICOLON":
+            raise InterpreterError("Expected ';' at end of assignment")
+        self.eat("SEMICOLON")
+        return ("assign", ident, expr)
+
+    def parse_expr(self):
+        node = self.parse_term()
+        while self.current().type in ("PLUS", "MINUS"):
+            op = self.current().value
+            if self.current().type == "PLUS":
+                self.eat("PLUS")
+            else:
+                self.eat("MINUS")
+            right = self.parse_term()
+            node = ("binop", op, node, right)
+        return node
+
+    def parse_term(self):
+        node = self.parse_factor()
+        while self.current().type == "MUL":
+            op = self.current().value
+            self.eat("MUL")
+            right = self.parse_factor()
+            node = ("binop", op, node, right)
+        return node
+
+    def parse_factor(self):
+        tok = self.current()
+        if tok.type == "PLUS":
+            self.eat("PLUS")
+            return ("unary", "+", self.parse_factor())
+        elif tok.type == "MINUS":
+            self.eat("MINUS")
+            return ("unary", "-", self.parse_factor())
+        elif tok.type == "LPAREN":
+            self.eat("LPAREN")
+            node = self.parse_expr()
+            if self.current().type != "RPAREN":
+                raise InterpreterError("Expected ')'")
+            self.eat("RPAREN")
+            return node
+        elif tok.type == "INTEGER":
+            value = int(tok.value)
+            self.eat("INTEGER")
+            return ("num", value)
+        elif tok.type == "IDENT":
+            name = tok.value
+            self.eat("IDENT")
+            return ("var", name)
+        else:
+            raise InterpreterError("Unexpected token in factor")
+
+def eval_expr(node, env):
+    node_type = node[0]
+    if node_type == "num":
+        return node[1]
+    elif node_type == "var":
+        var_name = node[1].lower()
+        if var_name not in env:
+            raise InterpreterError(f"Uninitialized variable: {node[1]}")
+        return env[var_name]
+    elif node_type == "binop":
+        op = node[1]
+        left_val = eval_expr(node[2], env)
+        right_val = eval_expr(node[3], env)
+        if op == "+":
+            return left_val + right_val
+        elif op == "-":
+            return left_val - right_val
+        elif op == "*":
+            return left_val * right_val
+        else:
+            raise InterpreterError("Unknown binary operator")
+    elif node_type == "unary":
+        op = node[1]
+        value = eval_expr(node[2], env)
+        if op == "-":
+            return -value
+        elif op == "+":
+            return value
+        else:
+            raise InterpreterError("Unknown unary operator")
+    else:
+        raise InterpreterError("Unknown node type during evaluation")
+
+def interpret_program(program_str):
+    try:
+        tokens = tokenize(program_str)
+        parser = Parser(tokens)
+        assignments = parser.parse_program()
+        env = {}
+        order = []
+        for stmt in assignments:
+            var_name = stmt[1].lower()
+            value = eval_expr(stmt[2], env)
+            if var_name not in env:
+                order.append(var_name)
+            env[var_name] = value
+        result_parts = []
+        for var in order:
+            result_parts.append(f"{var} = {env[var]}")
+        return " ".join(result_parts)
+    except (InterpreterError, LexError):
+        return "error"
+
+if __name__ == '__main__':
+    program_input = sys.stdin.read()
+    output = interpret_program(program_input)
+    print(output)
